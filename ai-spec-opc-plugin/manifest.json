@@ -1,0 +1,111 @@
+{
+  "pluginId": "ai-spec-docs",
+  "displayName": "AI-Spec 文档权限系统",
+  "description": "集成 douhua-spec 文档仓库，提供角色权限管理、AI 文档起草和项目接入向导",
+  "version": "1.0.0",
+  "capabilities": [
+    "companies:read",
+    "companies:create",
+    "agents:read",
+    "agents:create",
+    "issues:read",
+    "issues:comment",
+    "events:subscribe",
+    "http:external"
+  ],
+  "launchers": [
+    {
+      "key": "onboard",
+      "displayName": "新建项目接入",
+      "description": "将老项目接入 DocSpec AI 开发系统",
+      "icon": "📋"
+    }
+  ],
+  "actions": [
+    {
+      "key": "init-project",
+      "description": "初始化项目（创建 Paperclip 公司 + Agent + 文档目录）"
+    },
+    {
+      "key": "list-projects",
+      "description": "列出已接入的项目"
+    },
+    {
+      "key": "spec-draft",
+      "description": "AI Agent 起草文档并创建 GitLab MR"
+    }
+  ],
+  "tools": [
+    {
+      "key": "spec.list",
+      "description": "列出当前角色可访问的文档",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "prefix": { "type": "string", "description": "目录前缀过滤" }
+        }
+      }
+    },
+    {
+      "key": "spec.read",
+      "description": "读取指定文档内容",
+      "inputSchema": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string", "description": "文档路径（相对于 spec 仓库根目录）" }
+        }
+      }
+    },
+    {
+      "key": "spec.draft",
+      "description": "起草文档变更并创建 GitLab MR 供人工 Review",
+      "inputSchema": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path":      { "type": "string", "description": "文档路径" },
+          "content":   { "type": "string", "description": "新的文档内容" },
+          "agentName": { "type": "string", "description": "起草者名称" },
+          "assignees": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "GitLab 用户名列表（MR 指派 Review 人）"          }
+        }
+      }
+    },
+    {
+      "key": "spec.search",
+      "description": "在文档中搜索关键词",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "description": "搜索关键词" }
+        }
+      }
+    }
+  ],
+  "config": {
+    "docspecServerUrl": {
+      "type": "string",
+      "required": true,
+      "description": "docspec-server 地址，如 http://localhost:4000"
+    },
+    "docspecAdminToken": {
+      "type": "secret",
+      "required": true,
+      "description": "docspec-server 管理员 Token"
+    }
+  },
+  "entrypoints": {
+    "worker": "./dist/worker.js"
+  },
+  "events": {
+    "subscribe": [
+      "issues.created",
+      "agent.hired",
+      "company.created"
+    ]
+  }
+}

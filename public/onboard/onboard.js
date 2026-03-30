@@ -1,11 +1,11 @@
-// DocSpec 接入向导 — 前端逻辑
+// DocSpec Onboard Wizard - Frontend Logic
 (function () {
   "use strict";
 
   let currentStep = 1;
   const totalSteps = 4;
 
-  // ── 状态 ──
+  // State
   const state = {
     projectName: "",
     moduleId: "",
@@ -16,11 +16,11 @@
     generatedFiles: [],
   };
 
-  // ── DOM 工具 ──
+  // DOM helpers
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
-  // ── 步骤切换 ──
+  // Step navigation
   function goTo(step) {
     if (step < 1 || step > totalSteps) return;
     currentStep = step;
@@ -32,12 +32,12 @@
     });
     $(`.step-panel[data-step="${step}"]`).classList.add("active");
     $(".btn-back").style.display = step === 1 ? "none" : "";
-    $(".btn-next").textContent = step === totalSteps - 1 ? "立即接入 →" : step === totalSteps ? "" : "下一步 →";
+    $(".btn-next").textContent = step === totalSteps - 1 ? "Start Now" : step === totalSteps ? "" : "Next";
     $(".btn-next").style.display = step === totalSteps ? "none" : "";
     window.scrollTo(0, 0);
   }
 
-  // ── Step 1 ──
+  // Step 1
   function readStep1() {
     state.projectName = $("#projectName").value.trim();
     state.moduleId    = $("#moduleId").value.trim();
@@ -47,14 +47,14 @@
 
   function validateStep1() {
     readStep1();
-    if (!state.projectName) { alert("请填写项目名称"); return false; }
-    if (!state.moduleId)    { alert("请填写模块编号（如 SPEC-201）"); return false; }
-    if (!state.gitlabUrl)   { alert("请填写 GitLab 地址"); return false; }
-    if (!state.specRepo)    { alert("请填写 spec 仓库路径"); return false; }
+    if (!state.projectName) { alert("Please enter project name"); return false; }
+    if (!state.moduleId)    { alert("Please enter module ID (e.g., SPEC-201)"); return false; }
+    if (!state.gitlabUrl)   { alert("Please enter GitLab URL"); return false; }
+    if (!state.specRepo)    { alert("Please enter spec repo path"); return false; }
     return true;
   }
 
-  // ── Step 2 — 仓库 ──
+  // Step 2 - Repos
   const ROLES = ["product","design","frontend","android","ios","backend","test"];
   const STACKS = {
     frontend: "Vue3 / React + TypeScript",
@@ -73,32 +73,32 @@
       const card = document.createElement("div");
       card.className = "card";
       card.innerHTML = `
-        <div class="card-title">仓库 ${idx + 1} <span class="role-tag">${repo.role}</span></div>
-        <button class="remove-btn" data-idx="${idx}" title="删除">✕</button>
+        <div class="card-title">Repo ${idx + 1} <span class="role-tag">${repo.role}</span></div>
+        <button class="remove-btn" data-idx="${idx}" title="Remove">X</button>
         <div class="field-row">
           <div class="field">
-            <label>GitLab 仓库路径</label>
+            <label>GitLab Repo Path</label>
             <input type="text" value="${repo.gitlabPath}" data-idx="${idx}" data-field="gitlabPath" placeholder="group/repo-name" />
           </div>
           <div class="field">
-            <label>技术栈</label>
+            <label>Tech Stack</label>
             <input type="text" value="${repo.techStack}" data-idx="${idx}" data-field="techStack" placeholder="${STACKS[repo.role] || ""}" />
           </div>
         </div>
         <div class="field-row">
           <div class="field">
-            <label>已有 CI</label>
+            <label>Has CI</label>
             <select data-idx="${idx}" data-field="hasCi">
-              <option value="true"  ${repo.hasCi ? "selected" : ""}>是</option>
-              <option value="false" ${!repo.hasCi ? "selected" : ""}>否</option>
+              <option value="true"  ${repo.hasCi ? "selected" : ""}>Yes</option>
+              <option value="false" ${!repo.hasCi ? "selected" : ""}>No</option>
             </select>
           </div>
           <div class="field">
-            <label>已有文档</label>
+            <label>Has Docs</label>
             <select data-idx="${idx}" data-field="hasDocs">
-              <option value="false"   ${repo.hasDocs==="false"   ?"selected":""}>无</option>
-              <option value="partial" ${repo.hasDocs==="partial" ?"selected":""}>有（部分）</option>
-              <option value="true"    ${repo.hasDocs==="true"    ?"selected":""}>完整</option>
+              <option value="false"   ${repo.hasDocs==="false"   ?"selected":""}>None</option>
+              <option value="partial" ${repo.hasDocs==="partial" ?"selected":""}>Partial</option>
+              <option value="true"    ${repo.hasDocs==="true"    ?"selected":""}>Complete</option>
               <option value="swagger" ${repo.hasDocs==="swagger" ?"selected":""}>Swagger</option>
             </select>
           </div>
@@ -128,12 +128,12 @@
   }
 
   function validateStep2() {
-    if (state.repos.length === 0) { alert("请至少添加一个仓库"); return false; }
-    if (state.repos.some((r) => !r.gitlabPath)) { alert("请填写所有仓库的 GitLab 路径"); return false; }
+    if (state.repos.length === 0) { alert("Please add at least one repo"); return false; }
+    if (state.repos.some((r) => !r.gitlabPath)) { alert("Please fill in GitLab path for all repos"); return false; }
     return true;
   }
 
-  // ── Step 3 — 成员 ──
+  // Step 3 - Members
   function renderMembers() {
     const list = $("#memberList");
     list.innerHTML = "";
@@ -141,20 +141,20 @@
       const card = document.createElement("div");
       card.className = "card";
       card.innerHTML = `
-        <div class="card-title">成员 ${idx + 1} <span class="role-tag">${m.role}</span></div>
-        <button class="remove-btn" data-idx="${idx}" title="删除">✕</button>
+        <div class="card-title">Member ${idx + 1} <span class="role-tag">${m.role}</span></div>
+        <button class="remove-btn" data-idx="${idx}" title="Remove">X</button>
         <div class="field-row">
           <div class="field">
-            <label>姓名</label>
-            <input type="text" value="${m.name}" data-idx="${idx}" data-field="name" placeholder="张三" />
+            <label>Name</label>
+            <input type="text" value="${m.name}" data-idx="${idx}" data-field="name" placeholder="John Doe" />
           </div>
           <div class="field">
-            <label>GitLab 用户名</label>
-            <input type="text" value="${m.gitlabUser}" data-idx="${idx}" data-field="gitlabUser" placeholder="zhangsan" />
+            <label>GitLab Username</label>
+            <input type="text" value="${m.gitlabUser}" data-idx="${idx}" data-field="gitlabUser" placeholder="johndoe" />
           </div>
         </div>
         <div class="field" style="max-width:50%">
-          <label>角色</label>
+          <label>Role</label>
           <select data-idx="${idx}" data-field="role">
             ${ROLES.map((r) => `<option value="${r}" ${m.role===r?"selected":""}>${r}</option>`).join("")}
           </select>
@@ -178,12 +178,12 @@
   }
 
   function validateStep3() {
-    if (state.members.length === 0) { alert("请至少添加一位成员"); return false; }
-    if (state.members.some((m) => !m.name || !m.gitlabUser)) { alert("请填写所有成员的姓名和 GitLab 用户名"); return false; }
+    if (state.members.length === 0) { alert("Please add at least one member"); return false; }
+    if (state.members.some((m) => !m.name || !m.gitlabUser)) { alert("Please fill in name and GitLab username for all members"); return false; }
     return true;
   }
 
-  // ── Step 4 — 生成 & 下载 ──
+  // Step 4 - Generate
   async function generateFiles() {
     const body = {
       projectName: state.projectName,
@@ -195,7 +195,7 @@
     };
 
     const panel = $(`.step-panel[data-step="4"]`);
-    panel.innerHTML = `<div class="loading"><div class="spinner"></div>正在生成配置文件...</div>`;
+    panel.innerHTML = `<div class="loading"><div class="spinner"></div>Generating config files...</div>`;
 
     try {
       const res = await fetch("/api/onboard/generate", {
@@ -204,12 +204,12 @@
         body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "生成失败");
+      if (!res.ok) throw new Error(data.error || "Generation failed");
       state.generatedFiles = data.files;
       renderResult(panel);
     } catch (err) {
-      panel.innerHTML = `<div class="error-box">❌ 生成失败：${err.message}</div>
-        <button class="btn btn-secondary" id="retryBtn">重试</button>`;
+      panel.innerHTML = `<div class="error-box">Error: ${err.message}</div>
+        <button class="btn btn-secondary" id="retryBtn">Retry</button>`;
       $("#retryBtn").addEventListener("click", generateFiles);
     }
   }
@@ -220,10 +220,10 @@
         (f) => `
       <div class="file-card">
         <div class="file-card-header">
-          <span class="name">📄 ${f.name}</span>
+          <span class="name">${f.name}</span>
           <div class="actions">
-            <button class="btn-copy" data-name="${f.name}">复制</button>
-            <button class="btn-dl"   data-name="${f.name}">下载</button>
+            <button class="btn-copy" data-name="${f.name}">Copy</button>
+            <button class="btn-dl"   data-name="${f.name}">Download</button>
           </div>
         </div>
         <pre class="file-preview">${escHtml(f.content.slice(0, 500))}</pre>
@@ -232,26 +232,26 @@
       .join("");
 
     panel.innerHTML = `
-      <h2>✅ 配置文件已生成</h2>
+      <h2>Config Files Generated</h2>
       <div class="result-grid">${filesHtml}</div>
       <div class="zip-btn-wrap">
-        <button class="btn-zip" id="downloadZip">⬇ 打包下载全部文件（.zip）</button>
+        <button class="btn-zip" id="downloadZip">Download All (.zip)</button>
       </div>
       <div class="next-steps">
-        <h3>📋 下一步操作</h3>
+        <h3>Next Steps</h3>
         <ol>
-          <li>将 <code>.spec-permissions.yaml</code> 复制到 douhua-spec 仓库根目录</li>
-          <li>运行 <code>init-spec-dirs.sh</code> 创建模块目录结构</li>
-          <li>将 <code>gitlab-ci-snippet.yaml</code> 各端片段添加到 <code>.gitlab-ci.yml</code></li>
-          <li>按 <code>paperclip-company.yaml</code> 在 Paperclip 创建 Company 和 Agent</li>
-          <li>将 <code>plugin-config.yaml</code> 填入 Paperclip 插件配置</li>
+          <li>Copy <code>.spec-permissions.yaml</code> to douhua-spec repo root</li>
+          <li>Run <code>init-spec-dirs.sh</code> to create module directory structure</li>
+          <li>Add <code>gitlab-ci-snippet.yaml</code> fragments to each repo's <code>.gitlab-ci.yml</code></li>
+          <li>Create Company and Agents in Paperclip using <code>paperclip-company.yaml</code></li>
+          <li>Fill <code>plugin-config.yaml</code> into Paperclip plugin settings</li>
         </ol>
       </div>`;
 
     panel.querySelectorAll(".btn-copy").forEach((btn) =>
       btn.addEventListener("click", (e) => {
         const file = state.generatedFiles.find((f) => f.name === e.currentTarget.dataset.name);
-        if (file) navigator.clipboard.writeText(file.content).then(() => { btn.textContent = "已复制 ✓"; setTimeout(() => (btn.textContent = "复制"), 1500); });
+        if (file) navigator.clipboard.writeText(file.content).then(() => { btn.textContent = "Copied!"; setTimeout(() => (btn.textContent = "Copy"), 1500); });
       })
     );
     panel.querySelectorAll(".btn-dl").forEach((btn) =>
@@ -272,9 +272,8 @@
   }
 
   async function downloadAllAsZip() {
-    // 使用 JSZip（CDN 引入）
     if (typeof JSZip === "undefined") {
-      alert("JSZip 未加载，请检查网络连接后刷新页面重试。\n\n也可以逐个点击"下载"按钮单独下载每个文件。");
+      alert("JSZip not loaded. Please check network connection and refresh page.");
       return;
     }
     const zip = new JSZip();
@@ -288,25 +287,25 @@
   }
 
   function escHtml(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return s.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
   }
 
-  // ── 事件绑定 ──
+  // Init
   function init() {
     goTo(1);
 
-    // 角色快捷添加按钮（Step 2）
+    // Role quick-add buttons (Step 2)
     $$(".add-repo-btn").forEach((btn) =>
       btn.addEventListener("click", () => addRepo(btn.dataset.role))
     );
 
-    // 添加成员按钮（Step 3）
+    // Add member button (Step 3)
     $("#addMemberBtn").addEventListener("click", () => {
       state.members.push({ name: "", gitlabUser: "", role: "frontend" });
       renderMembers();
     });
 
-    // 导航按钮
+    // Navigation buttons
     $(".btn-next").addEventListener("click", () => {
       if (currentStep === 1 && !validateStep1()) return;
       if (currentStep === 2 && !validateStep2()) return;

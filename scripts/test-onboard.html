@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocSpec Onboard 测试</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: white; text-align: center; margin-bottom: 30px; font-size: 32px; text-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .card { background: white; border-radius: 16px; padding: 24px; margin-bottom: 20px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); }
+        .card h2 { color: #1a202c; font-size: 20px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+        .btn-group { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+        .btn { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 14px 28px; border-radius: 10px; cursor: pointer; font-size: 15px; font-weight: 500; transition: all 0.3s ease; box-shadow: 0 4px 14px rgba(102, 126, 234, 0.4); }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5); }
+        .btn-secondary { background: linear-gradient(135deg, #4a5568 0%, #2d3748 100%); box-shadow: 0 4px 14px rgba(74, 85, 104, 0.4); }
+        .btn-secondary:hover { box-shadow: 0 6px 20px rgba(74, 85, 104, 0.5); }
+        .btn-success { background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); box-shadow: 0 4px 14px rgba(72, 187, 120, 0.4); }
+        iframe { width: 100%; height: 700px; border: none; border-radius: 12px; background: #f7fafc; }
+        .test-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #e2e8f0; }
+        .test-row:last-child { border-bottom: none; }
+        .test-label { flex: 1; color: #2d3748; font-size: 14px; }
+        .test-status { padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .pass { background: #c6f6d5; color: #22543d; }
+        .fail { background: #fed7d7; color: #742a2a; }
+        .summary { text-align: center; padding: 20px; border-radius: 12px; font-size: 20px; font-weight: 700; margin-top: 20px; }
+        .summary.pass { background: linear-gradient(135deg, #48bb78 0%, #38a169 100%); color: white; }
+        .summary.fail { background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%); color: white; }
+        .file-item { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        .file-name { font-weight: 600; color: #667eea; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+        .file-content { background: #1a202c; color: #e2e8f0; padding: 14px; border-radius: 6px; font-family: monospace; font-size: 12px; white-space: pre-wrap; max-height: 250px; overflow-y: auto; line-height: 1.5; }
+        .loading { display: flex; align-items: center; gap: 10px; color: #667eea; }
+        .spinner { width: 20px; height: 20px; border: 3px solid #e2e8f0; border-top-color: #667eea; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 DocSpec Onboard 测试平台</h1>
+        <div class="card">
+            <h2>🚀 快速操作</h2>
+            <div class="btn-group">
+                <button class="btn" onclick="openOnboard()">📋 打开 Onboard 页面</button>
+                <button class="btn btn-secondary" onclick="testApi()">🧪 测试 API</button>
+                <button class="btn btn-success" onclick="viewProjects()">📁 查看项目</button>
+            </div>
+        </div>
+        <div class="card">
+            <h2>📋 Onboard 向导页面</h2>
+            <iframe id="onboardFrame" src="about:blank"></iframe>
+        </div>
+        <div class="card">
+            <h2>🧪 API 测试结果</h2>
+            <div id="api-results"><p style="color: #718096; text-align: center; padding: 40px;">点击"测试 API"按钮开始测试</p></div>
+            <div class="summary" id="summary"></div>
+        </div>
+        <div class="card">
+            <h2>📄 生成的配置文件</h2>
+            <div id="generated-files"><p style="color: #718096; text-align: center; padding: 40px;">配置生成后将在此处显示</p></div>
+        </div>
+    </div>
+    <script>
+        const BASE = 'http://localhost:4000';
+        let pass = 0, fail = 0;
+
+        function openOnboard() { document.getElementById('onboardFrame').src = 'http://localhost:4000/onboard/'; }
+
+        function renderResult(containerId, label, passed, detail = '') {
+            const container = document.getElementById(containerId);
+            const row = document.createElement('div');
+            row.className = 'test-row';
+            row.innerHTML = '<span class="test-label">' + label + (detail ? '<br><small style="color:#718096;margin-top:4px;display:block">' + escapeHtml(detail) + '</small>' : '') + '</span><span class="test-status ' + (passed ? 'pass' : 'fail') + '">' + (passed ? '✓ PASS' : '✗ FAIL') + '</span>';
+            container.appendChild(row);
+            if (passed) pass++; else fail++;
+        }
+
+        function clearResults() {
+            document.getElementById('api-results').innerHTML = '';
+            document.getElementById('generated-files').innerHTML = '';
+            pass = 0; fail = 0;
+        }
+
+        function updateSummary() {
+            const total = pass + fail;
+            const summary = document.getElementById('summary');
+            if (total === 0) { summary.className = 'summary'; summary.textContent = ''; return; }
+            summary.className = 'summary ' + (fail === 0 ? 'pass' : 'fail');
+            summary.textContent = fail === 0 ? '✅ 全部通过：' + pass + ' / ' + total : '❌ 失败：' + fail + ' / ' + total + '   通过：' + pass + ' / ' + total;
+        }
+
+        async function testApi() {
+            clearResults();
+            const container = document.getElementById('api-results');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div> 正在测试 API...</div>';
+            
+            const input = {
+                projectName: "测试模块",
+                moduleId: "SPEC-999",
+                gitlabUrl: "https://gitlab.example.com",
+                specRepo: "test-group/douhua-spec",
+                repos: [
+                    { role: "frontend", gitlabPath: "frontend/repo", techStack: "Vue3", hasCi: true, hasDocs: "true" },
+                    { role: "android", gitlabPath: "android/repo", techStack: "Kotlin", hasCi: true, hasDocs: "false" }
+                ],
+                members: [
+                    { name: "张三", role: "frontend", gitlabUser: "zhangsan" },
+                    { name: "李四", role: "android", gitlabUser: "lisi" }
+                ]
+            };
+
+            try {
+                const res = await fetch(BASE + '/api/onboard/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(input)
+                });
+                const data = await res.json();
+                if (container.querySelector('.loading')) container.innerHTML = '';
+                renderResult('api-results', 'POST /api/onboard/generate', res.ok && data.ok, data.files ? '生成 ' + data.files.length + ' 个配置文件' : '');
+                if (data.files) displayFiles(data.files);
+            } catch (e) {
+                const container = document.getElementById('api-results');
+                if (container.querySelector('.loading')) container.innerHTML = '';
+                renderResult('api-results', 'POST /api/onboard/generate', false, e.message);
+            }
+
+            try {
+                const res = await fetch(BASE + '/api/onboard/projects');
+                const data = await res.json();
+                renderResult('api-results', 'GET /api/onboard/projects', res.ok, data.projects ? '找到 ' + data.projects.length + ' 个已接入项目' : '无项目');
+            } catch (e) {
+                renderResult('api-results', 'GET /api/onboard/projects', false, e.message);
+            }
+
+            try {
+                const res = await fetch(BASE + '/api/onboard/init', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(input)
+                });
+                const data = await res.json();
+                renderResult('api-results', 'POST /api/onboard/init', res.ok && data.ok, data.moduleDir ? '创建目录：' + data.moduleDir : (data.error || ''));
+            } catch (e) {
+                renderResult('api-results', 'POST /api/onboard/init', false, e.message);
+            }
+
+            updateSummary();
+        }
+
+        async function viewProjects() {
+            try {
+                const res = await fetch(BASE + '/api/onboard/projects');
+                const data = await res.json();
+                const container = document.getElementById('generated-files');
+                container.innerHTML = '';
+                if (data.projects && data.projects.length > 0) {
+                    data.projects.forEach(project => {
+                        const item = document.createElement('div');
+                        item.className = 'file-item';
+                        item.innerHTML = '<div class="file-name">📁 ' + project.moduleId + ' - ' + project.projectName + '</div><div style="color: #718096; font-size: 13px;">目录：' + project.dir + '</div>';
+                        container.appendChild(item);
+                    });
+                } else {
+                    container.innerHTML = '<p style="color: #718096; text-align: center; padding: 40px;">暂无已接入项目</p>';
+                }
+            } catch (e) {
+                const container = document.getElementById('generated-files');
+                container.innerHTML = '<p style="color: #e53e3e; text-align: center; padding: 40px;">错误：' + e.message + '</p>';
+            }
+        }
+
+        function displayFiles(files) {
+            const container = document.getElementById('generated-files');
+            container.innerHTML = '';
+            files.forEach(file => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                item.innerHTML = '<div class="file-name">📄 ' + file.name + '</div><div class="file-content">' + escapeHtml(file.content) + '</div>';
+                container.appendChild(item);
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

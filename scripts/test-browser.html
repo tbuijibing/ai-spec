@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocSpec API 测试</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #333; }
+        .section {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #1976d2;
+            font-size: 18px;
+        }
+        .test-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .test-row:last-child { border-bottom: none; }
+        .test-label { flex: 1; }
+        .test-status {
+            padding: 4px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .pass { background: #e8f5e9; color: #2e7d32; }
+        .fail { background: #ffebee; color: #c62828; }
+        .pending { background: #fff3e0; color: #ef6c00; }
+        .btn {
+            background: #1976d2;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .btn:hover { background: #1565c0; }
+        .summary {
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            padding: 20px;
+        }
+        .summary.pass { color: #2e7d32; }
+        .summary.fail { color: #c62828; }
+        .token-display {
+            font-family: monospace;
+            font-size: 11px;
+            background: #f5f5f5;
+            padding: 4px 8px;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 DocSpec API 浏览器测试</h1>
+    
+    <div class="section">
+        <button class="btn" onclick="runAllTests()">运行所有测试</button>
+    </div>
+
+    <div class="section">
+        <h2>[1] 健康检查</h2>
+        <div id="health-test"></div>
+    </div>
+
+    <div class="section">
+        <h2>[2] 令牌颁发</h2>
+        <div id="token-test"></div>
+    </div>
+
+    <div class="section">
+        <h2>[3] 文件列表隔离</h2>
+        <div id="listing-test"></div>
+    </div>
+
+    <div class="section">
+        <h2>[4] 单文件读取权限</h2>
+        <div id="read-test"></div>
+    </div>
+
+    <div class="section">
+        <h2>[5] 写入权限</h2>
+        <div id="write-test"></div>
+    </div>
+
+    <div class="section">
+        <h2>[6] 角色端点</h2>
+        <div id="roles-test"></div>
+    </div>
+
+    <div class="section summary" id="summary"></div>
+
+    <script>
+        const BASE = 'http://localhost:4000';
+        const ISSUE_SECRET = 'dev-issue-secret-change-in-prod';
+        
+        let tokens = {};
+        let pass = 0, fail = 0;
+
+        function renderResult(containerId, label, passed) {
+            const container = document.getElementById(containerId);
+            const row = document.createElement('div');
+            row.className = 'test-row';
+            row.innerHTML = `
+                <span class="test-label">${label}</span>
+                <span class="test-status ${passed ? 'pass' : 'fail'}">${passed ? 'PASS' : 'FAIL'}</span>
+            `;
+            container.appendChild(row);
+            if (passed) pass++; else fail++;
+        }
+
+        function clearResults() {
+            ['health-test', 'token-test', 'listing-test', 'read-test', 'write-test', 'roles-test'].forEach(id => {
+                document.getElementById(id).innerHTML = '';
+            });
+            pass = 0;
+            fail = 0;
+        }
+
+        function updateSummary() {
+            const total = pass + fail;
+            const summary = document.getElementById('summary');
+            summary.className = `section summary ${fail === 0 ? 'pass' : 'fail'}`;
+            summary.textContent = fail === 0 
+                ? `✅ 全部通过：${pass} / ${total}` 
+                : `❌ 失败：${fail} / ${total}   通过：${pass} / ${total}`;
+        }
+
+        async function testHealth() {
+            try {
+                const res = await fetch(`${BASE}/api/health`);
+                const data = await res.json();
+                renderResult('health-test', 'GET /api/health', data.status === 'ok');
+            } catch (e) {
+                renderResult('health-test', 'GET /api/health', false);
+            }
+        }
+
+        async function getToken(role) {
+            const res = await fetch(`${BASE}/api/auth/token`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sub: `ci-${role}`, role, secret: ISSUE_SECRET })
+            });
+            const data = await res.json();
+            return data.token;
+        }
+
+        async function testTokens() {
+            const roles = ['frontend', 'android', 'test', 'admin'];
+            for (const role of roles) {
+                try {
+                    const token = await getToken(role);
+                    tokens[role] = token;
+                    renderResult('token-test', `${role} token issued`, token && token.length > 10);
+                } catch (e) {
+                    renderResult('token-test', `${role} token issued`, false);
+                }
+            }
+        }
+
+        async function testListing() {
+            const headers = role => ({ headers: { 'Authorization': `Bearer ${tokens[role]}` } });
+            
+            try {
+                const feRes = await fetch(`${BASE}/api/docs`, headers('frontend'));
+                const feData = await feRes.json();
+                renderResult('listing-test', 'frontend sees files', feData.files && feData.files.length > 0);
+            } catch (e) {
+                renderResult('listing-test', 'frontend sees files', false);
+            }
+
+            try {
+                const andRes = await fetch(`${BASE}/api/docs`, headers('android'));
+                const andData = await andRes.json();
+                renderResult('listing-test', 'android sees files', andData.files && andData.files.length > 0);
+            } catch (e) {
+                renderResult('listing-test', 'android sees files', false);
+            }
+
+            try {
+                const admRes = await fetch(`${BASE}/api/docs`, headers('admin'));
+                const feRes = await fetch(`${BASE}/api/docs`, headers('frontend'));
+                const admData = await admRes.json();
+                const feData = await feRes.json();
+                renderResult('listing-test', 'admin >= frontend count', admData.files.length >= feData.files.length);
+            } catch (e) {
+                renderResult('listing-test', 'admin >= frontend count', false);
+            }
+        }
+
+        async function docGet(token, path) {
+            const res = await fetch(`${BASE}/api/docs/${path}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            return res.status;
+        }
+
+        async function docPut(token, path, content) {
+            const res = await fetch(`${BASE}/api/docs/${path}`, {
+                method: 'PUT',
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ content })
+            });
+            return res.status;
+        }
+
+        async function testRead() {
+            const D = '02-modules/SPEC-201';
+            
+            // Seed files via admin
+            const seed = '# verify seed';
+            const seedPaths = [
+                '02-modules/SPEC-201/README.md',
+                `${D}/test/README.md`,
+                `${D}/design/README.md`,
+                `${D}/android/README.md`,
+                `${D}/frontend/README.md`
+            ];
+            for (const sp of seedPaths) {
+                await docPut(tokens.admin, sp, seed);
+            }
+
+            // Test role
+            renderResult('read-test', 'test reads module README.md', 
+                await docGet(tokens.test, '02-modules/SPEC-201/README.md') === 200);
+            renderResult('read-test', 'test blocked from design/', 
+                await docGet(tokens.test, `${D}/design/README.md`) === 403);
+
+            // Frontend role
+            renderResult('read-test', 'frontend reads design/README.md', 
+                await docGet(tokens.frontend, `${D}/design/README.md`) === 200);
+            renderResult('read-test', 'frontend blocked from android/', 
+                await docGet(tokens.frontend, `${D}/android/README.md`) === 403);
+
+            // Admin role
+            renderResult('read-test', 'admin reads android/README.md', 
+                await docGet(tokens.admin, `${D}/android/README.md`) === 200);
+        }
+
+        async function testWrite() {
+            const D = '02-modules/SPEC-201';
+            const c = `# verify ${new Date().toLocaleTimeString()}`;
+
+            renderResult('write-test', 'frontend writes frontend/', 
+                await docPut(tokens.frontend, `${D}/frontend/README.md`, c) === 200);
+            renderResult('write-test', 'frontend blocked writing android/', 
+                await docPut(tokens.frontend, `${D}/android/README.md`, c) === 403);
+            renderResult('write-test', 'test blocked writing test/', 
+                await docPut(tokens.test, `${D}/test/README.md`, c) === 403);
+        }
+
+        async function testRoles() {
+            try {
+                const admRes = await fetch(`${BASE}/api/roles`, {
+                    headers: { 'Authorization': `Bearer ${tokens.admin}` }
+                });
+                const admData = await admRes.json();
+                renderResult('roles-test', 'admin sees multiple roles', 
+                    admData.roles && admData.roles.length > 1);
+            } catch (e) {
+                renderResult('roles-test', 'admin sees multiple roles', false);
+            }
+
+            try {
+                const feRes = await fetch(`${BASE}/api/roles`, {
+                    headers: { 'Authorization': `Bearer ${tokens.frontend}` }
+                });
+                const feData = await feRes.json();
+                renderResult('roles-test', 'frontend sees only itself', 
+                    feData.roles && feData.roles[0] && feData.roles[0].name === 'frontend');
+            } catch (e) {
+                renderResult('roles-test', 'frontend sees only itself', false);
+            }
+        }
+
+        async function runAllTests() {
+            clearResults();
+            
+            await testHealth();
+            await testTokens();
+            await testListing();
+            await testRead();
+            await testWrite();
+            await testRoles();
+            
+            updateSummary();
+        }
+    </script>
+</body>
+</html>

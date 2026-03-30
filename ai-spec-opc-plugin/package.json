@@ -1,0 +1,23 @@
+{
+  "name": "ai-spec-opc-plugin",
+  "version": "1.0.0",
+  "description": "AI-Spec 文档权限系统 OPC 插件",
+  "type": "module",
+  "main": "./dist/worker.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "opc",
+    "plugin",
+    "ai-spec",
+    "docspec"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
