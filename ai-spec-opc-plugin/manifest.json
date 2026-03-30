@@ -1,8 +1,8 @@
 {
   "pluginId": "ai-spec-docs",
   "displayName": "AI-Spec 文档权限系统",
-  "description": "集成 douhua-spec 文档仓库，提供角色权限管理、AI 文档起草和项目接入向导",
-  "version": "1.0.0",
+  "description": "集成 douhua-spec 文档仓库，提供角色权限管理、AI 文档起草、CI/CD 自动更新和项目接入向导",
+  "version": "1.1.0",
   "capabilities": [
     "companies:read",
     "companies:create",
@@ -10,6 +10,7 @@
     "agents:create",
     "issues:read",
     "issues:comment",
+    "issues:update",
     "events:subscribe",
     "http:external"
   ],
@@ -42,7 +43,8 @@
       "inputSchema": {
         "type": "object",
         "properties": {
-          "prefix": { "type": "string", "description": "目录前缀过滤" }
+          "prefix": { "type": "string", "description": "目录前缀过滤" },
+          "role": { "type": "string", "description": "角色名称（用于权限过滤）" }
         }
       }
     },
@@ -53,13 +55,14 @@
         "type": "object",
         "required": ["path"],
         "properties": {
-          "path": { "type": "string", "description": "文档路径（相对于 spec 仓库根目录）" }
+          "path": { "type": "string", "description": "文档路径（相对于 spec 仓库根目录）" },
+          "role": { "type": "string", "description": "角色名称（用于权限过滤）" }
         }
       }
     },
     {
       "key": "spec.draft",
-      "description": "起草文档变更并创建 GitLab MR 供人工 Review",
+      "description": "起草文档变更并创建 GitLab MR 供人工 Review（支持章节标记）",
       "inputSchema": {
         "type": "object",
         "required": ["path", "content"],
@@ -70,7 +73,18 @@
           "assignees": {
             "type": "array",
             "items": { "type": "string" },
-            "description": "GitLab 用户名列表（MR 指派 Review 人）"          }
+            "description": "GitLab 用户名列表（MR 指派 Review 人）"
+          },
+          "role": { "type": "string", "description": "角色名称（用于权限过滤）" },
+          "autoSection": {
+            "type": "object",
+            "description": "AUTO 区域配置（章节标记）",
+            "properties": {
+              "source": { "type": "string", "description": "数据来源（swagger, vue-router, etc.）" },
+              "startMarker": { "type": "string", "description": "开始标记（可选）" },
+              "endMarker": { "type": "string", "description": "结束标记（可选）" }
+            }
+          }
         }
       }
     },
@@ -81,7 +95,22 @@
         "type": "object",
         "required": ["query"],
         "properties": {
-          "query": { "type": "string", "description": "搜索关键词" }
+          "query": { "type": "string", "description": "搜索关键词" },
+          "role": { "type": "string", "description": "角色名称（用于权限过滤）" }
+        }
+      }
+    },
+    {
+      "key": "spec.update-auto",
+      "description": "CI/CD 自动更新 AUTO 区域（直写 main，无需 MR）",
+      "inputSchema": {
+        "type": "object",
+        "required": ["path", "content", "source"],
+        "properties": {
+          "path": { "type": "string", "description": "文档路径" },
+          "content": { "type": "string", "description": "新的文档内容（不含 AUTO 标记）" },
+          "source": { "type": "string", "description": "数据来源（ci/android, ci/ios, ci/backend, etc.）" },
+          "role": { "type": "string", "description": "角色名称（用于权限验证）" }
         }
       }
     }
@@ -104,6 +133,7 @@
   "events": {
     "subscribe": [
       "issues.created",
+      "issues.completed",
       "agent.hired",
       "company.created"
     ]

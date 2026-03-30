@@ -1,10 +1,16 @@
 /**
- * ai-spec-opc-plugin — OPC 插件 Worker
+ * ai-spec-opc-plugin — OPC 插件 Worker (增强版)
  * 
  * 提供以下能力：
- *   Tools:    spec.list / spec.read / spec.draft / spec.search
+ *   Tools:    spec.list / spec.read / spec.draft / spec.search / spec.update-auto
  *   Actions:  init-project / list-projects / spec-draft
- *   Events:   issues.created / agent.hired / company.created
+ *   Events:   issues.created / issues.completed / agent.hired / company.created
+ * 
+ * 优化功能：
+ *   - 支持章节标记（DOCSPEC:AUTO:START/END）
+ *   - 支持 CI/CD 自动更新（直写 main）
+ *   - 支持角色感知权限过滤
+ *   - 支持 issue.completed 事件
  */
 
 // ── 类型定义 ────────────────────────────────────────────────────────
@@ -42,7 +48,8 @@ type PluginContext = {
     }): Promise<{ id: string }>;
   };
   issues: {
-    update(id: string, data: { description?: string }): Promise<void>;
+    update(id: string, data: { description?: string; status?: string }): Promise<void>;
+    get(id: string): Promise<{ id: string; title: string; description?: string; status?: string }>;
   };
   /** 实体管理 */
   entities: {
@@ -73,12 +80,6 @@ type PluginContext = {
 };
 
 // ── 工具：调用 docspec-server HTTP API ──────────────────────────────
-
-interface DocSpecResponse<T> {
-  ok?: boolean;
-  data?: T;
-  error?: string;
-}
 
 async function docspecFetch<T>(
   ctx: PluginContext,
@@ -127,19 +128,23 @@ async function docspecFetch<T>(
 /**
  * Tool: spec.list
  * 列出当前角色可访问的文档
+ * 
+ * 优化 4: 支持角色感知
  */
 function registerSpecList(ctx: PluginContext) {
   ctx.tools.register("spec.list", async (input: unknown) => {
-    const { prefix = "" } = (input ?? {}) as { prefix?: string };
+    const { prefix = "", role } = (input ?? {}) as { prefix?: string; role?: string };
     
-    ctx.logger.info("[spec.list] Listing documents", { prefix });
+    ctx.logger.info("[spec.list] Listing documents", { prefix, role });
     
     const qs = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
+    const roleQs = role ? `${qs ? qs + "&" : "?"}role=${encodeURIComponent(role)}` : "";
+    
     const result = await docspecFetch<{
       role: string;
       count: number;
       files: Array<{ path: string; size: number; modifiedAt: string; write: boolean }>;
-    }>(ctx, `/api/docs${qs}`);
+    }>(ctx, `/api/docs${qs || roleQs || ""}`);
 
     ctx.logger.info(`[spec.list] Found ${result.count} files`);
     
@@ -150,24 +155,29 @@ function registerSpecList(ctx: PluginContext) {
 /**
  * Tool: spec.read
  * 读取指定文档内容
+ * 
+ * 优化 4: 支持角色感知
  */
 function registerSpecRead(ctx: PluginContext) {
   ctx.tools.register("spec.read", async (input: unknown) => {
-    const { path } = input as { path: string };
+    const { path, role } = input as { path: string; role?: string };
     
     if (!path) {
       throw new Error("path is required");
     }
 
-    ctx.logger.info("[spec.read] Reading document", { path });
+    ctx.logger.info("[spec.read] Reading document", { path, role });
 
     const encodedPath = encodeURIComponent(path);
+    const qs = role ? `?role=${encodeURIComponent(role)}` : "";
+    
     const result = await docspecFetch<{
       path: string;
       content: string;
       write: boolean;
       encoding: string;
-    }>(ctx, `/api/docs/${encodedPath}`);
+      autoSections?: Array<{ start: number; end: number; source: string }>;
+    }>(ctx, `/api/docs/${encodedPath}${qs}`);
 
     ctx.logger.info(`[spec.read] Read ${path} (${result.content.length} chars)`);
 
@@ -178,36 +188,52 @@ function registerSpecRead(ctx: PluginContext) {
 /**
  * Tool: spec.draft
  * 起草文档变更并创建 GitLab MR
+ * 
+ * 优化 1: 支持章节标记（区分 AUTO 区和手写区）
  */
 function registerSpecDraft(ctx: PluginContext) {
   ctx.tools.register("spec.draft", async (input: unknown) => {
-    const { path, content, agentName, assignees = [] } = input as {
+    const { path, content, agentName, assignees = [], autoSection, role } = input as {
       path: string;
       content: string;
       agentName?: string;
       assignees?: string[];
+      autoSection?: {
+        source: string;  // 数据来源：swagger, vue-router, etc.
+        startMarker?: string;  // 默认：<!-- DOCSPEC:AUTO:START source="..." -->
+        endMarker?: string;    // 默认：<!-- DOCSPEC:AUTO:END -->
+      };
+      role?: string;
     };
 
     if (!path || !content) {
       throw new Error("path and content are required");
     }
 
-    ctx.logger.info("[spec.draft] Drafting document change", { path, agentName, assigneesCount: assignees.length });
+    ctx.logger.info("[spec.draft] Drafting document change", { path, agentName, autoSection: !!autoSection });
 
     const encodedPath = encodeURIComponent(path);
+    const qs = role ? `?role=${encodeURIComponent(role)}` : "";
+    
     const result = await docspecFetch<{
       ok: boolean;
       mode: "mr" | "direct";
       path: string;
       mrUrl?: string;
       mrIid?: number;
-    }>(ctx, `/api/docs/${encodedPath}`, {
+      autoSectionInserted?: boolean;
+    }>(ctx, `/api/docs/${encodedPath}${qs}`, {
       method: "PUT",
       body: JSON.stringify({
         content,
         createMR: true,
         agentName: agentName || "AI Agent",
         assignees,
+        autoSection: autoSection ? {
+          source: autoSection.source,
+          startMarker: autoSection.startMarker || `<!-- DOCSPEC:AUTO:START source="${autoSection.source}" updated="${new Date().toISOString()}" -->`,
+          endMarker: autoSection.endMarker || "<!-- DOCSPEC:AUTO:END -->",
+        } : undefined,
       }),
     });
 
@@ -220,21 +246,23 @@ function registerSpecDraft(ctx: PluginContext) {
 /**
  * Tool: spec.search
  * 在文档中搜索关键词
+ * 
+ * 优化 4: 支持角色感知
  */
 function registerSpecSearch(ctx: PluginContext) {
   ctx.tools.register("spec.search", async (input: unknown) => {
-    const { query } = input as { query: string };
+    const { query, role } = input as { query: string; role?: string };
 
     if (!query) {
       throw new Error("query is required");
     }
 
-    ctx.logger.info("[spec.search] Searching documents", { query });
+    ctx.logger.info("[spec.search] Searching documents", { query, role });
 
     // 首先获取所有文档列表
     const allDocs = await docspecFetch<{
       files: Array<{ path: string }>;
-    }>(ctx, "/api/docs");
+    }>(ctx, "/api/docs" + (role ? `?role=${encodeURIComponent(role)}` : ""));
 
     const results: Array<{ path: string; snippet: string; score: number }> = [];
     const queryLower = query.toLowerCase();
@@ -242,7 +270,7 @@ function registerSpecSearch(ctx: PluginContext) {
     // 限制最多检查 50 个文件
     for (const file of allDocs.files.slice(0, 50)) {
       try {
-        const doc = await docspecFetch<{ content: string }>(ctx, `/api/docs/${encodeURIComponent(file.path)}`);
+        const doc = await docspecFetch<{ content: string }>(ctx, `/api/docs/${encodeURIComponent(file.path)}` + (role ? `?role=${encodeURIComponent(role)}` : ""));
         
         if (doc.content.toLowerCase().includes(queryLower)) {
           // 计算相关性分数（基于出现次数和位置）
@@ -273,6 +301,57 @@ function registerSpecSearch(ctx: PluginContext) {
     ctx.logger.info(`[spec.search] Found ${results.length} results`);
 
     return { query, count: results.length, results };
+  });
+}
+
+/**
+ * Tool: spec.update-auto (新增)
+ * CI/CD 自动更新 AUTO 区域，直写 main，无需 MR
+ * 
+ * 优化 2: 专门用于 CI/CD 自动更新
+ */
+function registerSpecUpdateAuto(ctx: PluginContext) {
+  ctx.tools.register("spec.update-auto", async (input: unknown) => {
+    const { path, content, source, role } = input as {
+      path: string;
+      content: string;
+      source: string;  // 数据来源：ci/android, ci/ios, ci/backend, etc.
+      role?: string;   // 调用者角色（用于权限验证）
+    };
+
+    if (!path || !content || !source) {
+      throw new Error("path, content, and source are required");
+    }
+
+    ctx.logger.info("[spec.update-auto] Auto-updating document", { path, source });
+
+    const encodedPath = encodeURIComponent(path);
+    const qs = role ? `?role=${encodeURIComponent(role)}` : "";
+    
+    // 构建 AUTO 区域标记
+    const autoStart = `<!-- DOCSPEC:AUTO:START source="${source}" updated="${new Date().toISOString()}" -->\n`;
+    const autoEnd = `\n<!-- DOCSPEC:AUTO:END -->`;
+    const autoContent = autoStart + content + autoEnd;
+
+    const result = await docspecFetch<{
+      ok: boolean;
+      mode: "direct";
+      path: string;
+      commitSha?: string;
+      autoSectionInserted: boolean;
+    }>(ctx, `/api/docs/${encodedPath}${qs}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        content: autoContent,
+        createMR: false,  // 直写 main
+        autoUpdate: true,
+        source,
+      }),
+    });
+
+    ctx.logger.info(`[spec.update-auto] Updated ${path} directly (commit: ${result.commitSha})`);
+
+    return result;
   });
 }
 
@@ -410,29 +489,34 @@ function registerListProjects(ctx: PluginContext) {
  */
 function registerSpecDraftAction(ctx: PluginContext) {
   ctx.actions.register("spec-draft", async (input: unknown) => {
-    const { path, content, agentName, assignees = [] } = input as {
+    const { path, content, agentName, assignees = [], autoSection, role } = input as {
       path: string;
       content: string;
       agentName?: string;
       assignees?: string[];
+      autoSection?: { source: string };
+      role?: string;
     };
 
     ctx.logger.info("[spec-draft] Drafting document", { path, agentName });
 
     const encodedPath = encodeURIComponent(path);
+    const qs = role ? `?role=${encodeURIComponent(role)}` : "";
+    
     const result = await docspecFetch<{
       ok: boolean;
       mode: "mr" | "direct";
       path: string;
       mrUrl?: string;
       mrIid?: number;
-    }>(ctx, `/api/docs/${encodedPath}`, {
+    }>(ctx, `/api/docs/${encodedPath}${qs}`, {
       method: "PUT",
       body: JSON.stringify({
         content,
         createMR: true,
         agentName: agentName || "AI Agent",
         assignees,
+        autoSection,
       }),
     });
 
@@ -511,6 +595,53 @@ function registerIssuesCreatedHandler(ctx: PluginContext) {
 }
 
 /**
+ * Event: issues.completed (新增)
+ * 当 Issue 完成时，提示 Agent 检查文档是否需要更新
+ * 
+ * 优化 3: 增加 issue.completed 事件
+ */
+function registerIssuesCompletedHandler(ctx: PluginContext) {
+  ctx.events.on("issues.completed", async (payload: unknown) => {
+    const issue = payload as { 
+      id: string; 
+      title: string; 
+      description?: string; 
+      status: string;
+      companyId: string;
+      assigneeId?: string;
+    };
+    
+    ctx.logger.info("[issues.completed] Issue completed", { id: issue.id, title: issue.title });
+
+    try {
+      // 检查 issue 描述中是否包含文档变更提示
+      const needsDocUpdate = issue.description?.toLowerCase().includes("doc update needed") ||
+                             issue.description?.toLowerCase().includes("文档需要更新");
+
+      if (needsDocUpdate) {
+        // 获取相关文档列表（从 issue 描述中的引用）
+        const docRefs = issue.description?.match(/\[`([^`]+)`\]\(docspec:\/\/([^)]+)\)/g) || [];
+        
+        if (docRefs.length > 0) {
+          const docPaths = docRefs.map(ref => {
+            const match = ref.match(/\[`([^`]+)`\]\(docspec:\/\/([^)]+)\)/);
+            return match ? match[2] : null;
+          }).filter(Boolean) as string[];
+
+          ctx.logger.info(`[issues.completed] Suggesting doc update for: ${docPaths.join(", ")}`);
+
+          // 这里可以触发通知或创建后续任务
+          // 由于 OPC 可能没有直接的通知 API，我们记录日志即可
+          ctx.logger.info(`[issues.completed] Issue ${issue.id} completed. Related docs may need update: ${docPaths.join(", ")}`);
+        }
+      }
+    } catch (err) {
+      ctx.logger.error("[issues.completed] Failed to check doc update", err);
+    }
+  });
+}
+
+/**
  * Event: agent.hired
  * 当招聘新 Agent 时，在 docspec-server 注册
  */
@@ -581,6 +712,7 @@ export function setup(ctx: PluginContext) {
   registerSpecRead(ctx);
   registerSpecDraft(ctx);
   registerSpecSearch(ctx);
+  registerSpecUpdateAuto(ctx);  // 新增
 
   // 注册 Actions
   registerInitProject(ctx);
@@ -589,6 +721,7 @@ export function setup(ctx: PluginContext) {
 
   // 注册 Event 处理器
   registerIssuesCreatedHandler(ctx);
+  registerIssuesCompletedHandler(ctx);  // 新增
   registerAgentHiredHandler(ctx);
   registerCompanyCreatedHandler(ctx);
 

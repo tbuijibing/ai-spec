@@ -6,12 +6,13 @@ AI-Spec 文档权限系统 OPC 插件 - 将 douhua-spec 文档仓库集成到 Ji
 
 ### Tools
 
-| Tool | 描述 |
-|------|------|
-| `spec.list` | 列出当前角色可访问的文档 |
-| `spec.read` | 读取指定文档内容 |
-| `spec.draft` | 起草文档变更并创建 GitLab MR |
-| `spec.search` | 在文档中搜索关键词 |
+| Tool | 描述 | 优化 |
+|------|------|------|
+| `spec.list` | 列出角色可访问的文档 | ✅ 支持角色参数 |
+| `spec.read` | 读取文档内容 | ✅ 支持角色参数 |
+| `spec.draft` | 起草文档变更并创建 GitLab MR | ✅ 支持章节标记 |
+| `spec.search` | 搜索文档关键词 | ✅ 支持角色参数 |
+| `spec.update-auto` | CI/CD 自动更新 AUTO 区域 | 🆕 新增 |
 
 ### Actions
 
@@ -26,6 +27,7 @@ AI-Spec 文档权限系统 OPC 插件 - 将 douhua-spec 文档仓库集成到 Ji
 | Event | 触发时机 | 响应 |
 |-------|---------|------|
 | `issues.created` | 创建 Issue 时 | 自动注入相关文档引用 |
+| `issues.completed` | Issue 完成时 | 检查文档是否需要更新 |
 | `agent.hired` | 招聘 Agent 时 | 在 docspec-server 注册 Agent |
 | `company.created` | 创建公司时 | 初始化文档权限配置 |
 
@@ -50,7 +52,7 @@ curl -X POST http://localhost:3100/api/companies/{companyId}/plugins \
   -d '{
     "name": "AI-Spec 文档权限系统",
     "slug": "ai-spec-docs",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "manifest": { ... }
   }'
 ```
@@ -73,8 +75,8 @@ curl -X POST http://localhost:3100/api/companies/{companyId}/plugins \
 const result = await tools.call("spec.list", {});
 // 返回：{ role: "developer", count: 10, files: [...] }
 
-// 列出指定目录的文档
-const result = await tools.call("spec.list", { prefix: "02-modules" });
+// 列出指定目录的文档（带角色过滤）
+const result = await tools.call("spec.list", { prefix: "02-modules", role: "frontend" });
 ```
 
 ### 使用 Tool: spec.read
@@ -85,9 +87,15 @@ const result = await tools.call("spec.read", {
   path: "SPEC-001-项目总规.md"
 });
 // 返回：{ path: "...", content: "...", write: true }
+
+// 带角色过滤读取
+const result = await tools.call("spec.read", {
+  path: "SPEC-001-项目总规.md",
+  role: "frontend"
+});
 ```
 
-### 使用 Tool: spec.draft
+### 使用 Tool: spec.draft（支持章节标记）
 
 ```typescript
 // 起草文档变更并创建 MR
@@ -98,6 +106,31 @@ const result = await tools.call("spec.draft", {
   assignees: ["zhangsan", "lisi"]
 });
 // 返回：{ ok: true, mode: "mr", mrUrl: "https://gitlab/.../merge_requests/1" }
+
+// 使用章节标记（AUTO 区域）
+const result = await tools.call("spec.draft", {
+  path: "03-api-docs/SPEC-201-api.md",
+  content: "## API 列表\n...",
+  agentName: "Backend Agent",
+  autoSection: {
+    source: "swagger",
+    startMarker: "<!-- DOCSPEC:AUTO:START source=\"swagger\" -->",
+    endMarker: "<!-- DOCSPEC:AUTO:END -->"
+  }
+});
+```
+
+### 使用 Tool: spec.update-auto（新增）
+
+```typescript
+// CI/CD 自动更新 AUTO 区域（直写 main，无需 MR）
+const result = await tools.call("spec.update-auto", {
+  path: "test/T0-部署信息.md",
+  content: "## Android APK\n- 版本：v1.2.3\n- 下载：http://...",
+  source: "ci/android",
+  role: "backend"
+});
+// 返回：{ ok: true, mode: "direct", commitSha: "abc123" }
 ```
 
 ### 使用 Action: init-project
@@ -125,6 +158,7 @@ ai-spec-opc-plugin/
 ├── manifest.json          # 插件清单
 ├── package.json           # 项目配置
 ├── tsconfig.json          # TypeScript 配置
+├── .env.example           # 环境变量模板
 ├── README.md              # 本文档
 └── src/
     └── worker.ts          # 插件入口
@@ -173,6 +207,32 @@ npm run clean
 3. **权限验证**: 调用 docspec-server 时使用 JWT Token 验证
 4. **审计日志**: 所有文档操作记录到 OPC 活动日志
 
+## 章节标记设计
+
+根据 docspec-system.md 规范，AUTO 区域使用 HTML 注释标记：
+
+```markdown
+<!-- DOCSPEC:AUTO:START source="swagger" updated="2026-03-30T22:00:00Z" -->
+## API 清单
+...（自动生成，每次 CI 覆盖此区域）
+<!-- DOCSPEC:AUTO:END -->
+
+## 补充说明
+...（手写区，CI 不会修改）
+```
+
+### 支持的 source 类型
+
+| source | 说明 | 触发来源 |
+|--------|------|---------|
+| `swagger` | Swagger API 文档 | 后端代码 push |
+| `vue-router` | Vue 路由配置 | 前端路由文件变更 |
+| `android-manifest` | Android 导航配置 | Android 代码 push |
+| `ios-swiftui` | iOS 导航配置 | iOS 代码 push |
+| `ci/android` | Android CI 构建信息 | Android CI 成功 |
+| `ci/ios` | iOS CI 构建信息 | iOS CI 成功 |
+| `ci/backend` | 后端 CI 构建信息 | 后端 CI 成功 |
+
 ## 故障排除
 
 ### 问题：插件安装后无法调用 Tools
@@ -189,14 +249,21 @@ npm run clean
 2. 检查 JWT Token 是否有效
 3. 确认角色权限配置正确
 
-### 问题：init-project 失败
+### 问题：spec.update-auto 失败
 
 **解决方案**:
-1. 检查 OPC 公司创建权限
-2. 确认 docspec-server /api/onboard/init API 可用
-3. 查看详细的错误日志
+1. 确认 docspec-server 支持 AUTO 区域更新
+2. 检查 source 参数是否合法
+3. 确认调用者角色有写权限
 
 ## 版本历史
+
+### v1.1.0（增强版）
+
+- 🆕 新增 `spec.update-auto` Tool（CI/CD 自动更新）
+- ✅ 增强 `spec.draft` 支持章节标记（AUTO 区域）
+- ✅ 增强所有 Tools 支持 `role` 参数（角色感知）
+- ✅ 新增 `issues.completed` 事件处理
 
 ### v1.0.0
 
