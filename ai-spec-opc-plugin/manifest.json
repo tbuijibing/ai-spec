@@ -1,8 +1,8 @@
 {
   "pluginId": "ai-spec-docs",
   "displayName": "AI-Spec 文档权限系统",
-  "description": "集成 douhua-spec 文档仓库，提供角色权限管理、AI 文档起草、CI/CD 自动更新和项目接入向导",
-  "version": "1.1.0",
+  "description": "集成 douhua-spec 文档仓库，提供角色权限管理、AI 文档起草、CI/CD 自动更新、规范模板系统和记忆系统",
+  "version": "1.2.0",
   "capabilities": [
     "companies:read",
     "companies:create",
@@ -113,6 +113,55 @@
           "role": { "type": "string", "description": "角色名称（用于权限验证）" }
         }
       }
+    },
+    {
+      "key": "spec.get-template",
+      "description": "获取规范模板（开发规范、代码审查、文档编写等）",
+      "inputSchema": {
+        "type": "object",
+        "required": ["templateType"],
+        "properties": {
+          "templateType": { "type": "string", "description": "模板类型（dev-spec, code-review, doc-writing, test-spec, git-flow, api-design）" },
+          "moduleId": { "type": "string", "description": "模块 ID（可选，用于获取特定模块的规范）" }
+        }
+      }
+    },
+    {
+      "key": "spec.save-memory",
+      "description": "保存经验到长期记忆（架构决策、经验教训、最佳实践、故障排查）",
+      "inputSchema": {
+        "type": "object",
+        "required": ["memoryType", "title", "content"],
+        "properties": {
+          "memoryType": { "type": "string", "description": "记忆类型（architecture, lesson-learned, best-practice, troubleshooting）" },
+          "title": { "type": "string", "description": "记忆标题" },
+          "content": { "type": "string", "description": "记忆内容" },
+          "tags": { "type": "array", "items": { "type": "string" }, "description": "标签列表" },
+          "relatedIssueId": { "type": "string", "description": "关联的 Issue ID" },
+          "relatedModuleId": { "type": "string", "description": "关联的模块 ID" }
+        }
+      }
+    },
+    {
+      "key": "spec.load-memory",
+      "description": "从长期记忆加载相关经验",
+      "inputSchema": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "description": "搜索关键词" },
+          "memoryType": { "type": "string", "description": "记忆类型过滤" },
+          "limit": { "type": "number", "description": "返回数量限制（默认 5）" }
+        }
+      }
+    },
+    {
+      "key": "spec.list-memories",
+      "description": "列出所有记忆分类和数量",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
     }
   ],
   "config": {
@@ -134,6 +183,7 @@
     "subscribe": [
       "issues.created",
       "issues.completed",
+      "issues.assigned",
       "agent.hired",
       "company.created"
     ]

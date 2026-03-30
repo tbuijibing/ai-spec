@@ -1,16 +1,16 @@
 /**
- * ai-spec-opc-plugin — OPC 插件 Worker (增强版)
- * 
+ * ai-spec-opc-plugin — OPC 插件 Worker (规范模板 + 记忆系统)
+ *
  * 提供以下能力：
  *   Tools:    spec.list / spec.read / spec.draft / spec.search / spec.update-auto
+ *             spec.get-template / spec.save-memory / spec.load-memory / spec.list-memories
  *   Actions:  init-project / list-projects / spec-draft
- *   Events:   issues.created / issues.completed / agent.hired / company.created
- * 
- * 优化功能：
- *   - 支持章节标记（DOCSPEC:AUTO:START/END）
- *   - 支持 CI/CD 自动更新（直写 main）
- *   - 支持角色感知权限过滤
- *   - 支持 issue.completed 事件
+ *   Events:   issues.created / issues.completed / issues.assigned / agent.hired / company.created
+ *
+ * 核心设计：
+ *   - 规范模板系统：AI 严格按照规范工作
+ *   - 长期记忆：项目规范、架构决策、历史经验（存文档）
+ *   - 短期记忆：当前任务上下文、临时决策（存 OPC Issue/Agent 状态）
  */
 
 // ── 类型定义 ────────────────────────────────────────────────────────
@@ -355,6 +355,263 @@ function registerSpecUpdateAuto(ctx: PluginContext) {
   });
 }
 
+/**
+ * Tool: spec.get-template (新增)
+ * 获取规范模板 - AI 严格按照规范工作
+ *
+ * 规范模板系统：
+ * - 开发规范模板
+ * - 代码审查模板
+ * - 文档编写模板
+ * - 测试规范模板
+ */
+function registerSpecGetTemplate(ctx: PluginContext) {
+  ctx.tools.register("spec.get-template", async (input: unknown) => {
+    const { templateType, moduleId } = input as {
+      templateType: string;  // 模板类型：dev-spec, code-review, doc-writing, test-spec, etc.
+      moduleId?: string;     // 可选：模块 ID（用于获取模块特定规范）
+    };
+
+    if (!templateType) {
+      throw new Error("templateType is required");
+    }
+
+    ctx.logger.info("[spec.get-template] Getting template", { templateType, moduleId });
+
+    // 模板路径映射
+    const templatePaths: Record<string, string> = {
+      "dev-spec": "00-conventions/01-开发规范.md",
+      "code-review": "00-conventions/02-代码审查规范.md",
+      "doc-writing": "00-conventions/03-文档编写规范.md",
+      "test-spec": "00-conventions/04-测试规范.md",
+      "git-flow": "00-conventions/05-Git 工作流规范.md",
+      "design-system": "00-conventions/06-设计系统规范.md",
+      "api-design": "00-conventions/08-API 设计规范.md",
+    };
+
+    const templatePath = templatePaths[templateType];
+    if (!templatePath) {
+      throw new Error(`Unknown template type: ${templateType}`);
+    }
+
+    try {
+      const result = await docspecFetch<{
+        path: string;
+        content: string;
+        write: boolean;
+      }>(ctx, `/api/docs/${encodeURIComponent(templatePath)}`);
+
+      ctx.logger.info(`[spec.get-template] Loaded template: ${templatePath}`);
+
+      return {
+        templateType,
+        path: templatePath,
+        content: result.content,
+        lastModified: result.write ? "unknown" : "unknown",
+      };
+    } catch (err) {
+      ctx.logger.warn(`[spec.get-template] Template not found: ${templatePath}`, err);
+      return {
+        templateType,
+        path: templatePath,
+        content: `# ${templateType} 模板\n\n模板文件不存在，请联系管理员创建。`,
+        error: "Template not found",
+      };
+    }
+  });
+}
+
+/**
+ * Tool: spec.save-memory (新增)
+ * 保存经验到长期记忆（存为文档）
+ *
+ * 记忆分类：
+ * - architecture: 架构决策记录（ADR）
+ * - lesson-learned: 经验教训
+ * - best-practice: 最佳实践
+ * - troubleshooting: 故障排查手册
+ */
+function registerSpecSaveMemory(ctx: PluginContext) {
+  ctx.tools.register("spec.save-memory", async (input: unknown) => {
+    const { memoryType, title, content, tags = [], relatedIssueId, relatedModuleId } = input as {
+      memoryType: string;  // architecture, lesson-learned, best-practice, troubleshooting
+      title: string;
+      content: string;
+      tags?: string[];
+      relatedIssueId?: string;
+      relatedModuleId?: string;
+    };
+
+    if (!memoryType || !title || !content) {
+      throw new Error("memoryType, title, and content are required");
+    }
+
+    ctx.logger.info("[spec.save-memory] Saving memory", { memoryType, title, tags });
+
+    // 记忆路径映射
+    const memoryPaths: Record<string, string> = {
+      "architecture": "01-architecture-decisions",
+      "lesson-learned": "02-lessons-learned",
+      "best-practice": "03-best-practices",
+      "troubleshooting": "04-troubleshooting",
+    };
+
+    const memoryDir = memoryPaths[memoryType] || "05-memories";
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").split("T")[0];
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const fileName = `${memoryDir}/${timestamp}-${slug}.md`;
+
+    // 构建记忆文档（带 Front Matter）
+    const frontMatter = [
+      "---",
+      `type: ${memoryType}`,
+      `title: ${title}`,
+      `date: ${new Date().toISOString()}`,
+      tags.length > 0 ? `tags: [${tags.join(", ")}]` : "",
+      relatedIssueId ? `relatedIssue: ${relatedIssueId}` : "",
+      relatedModuleId ? `relatedModule: ${relatedModuleId}` : "",
+      "---",
+      "",
+    ].filter(Boolean).join("\n");
+
+    const fullContent = frontMatter + content;
+
+    try {
+      const result = await docspecFetch<{
+        ok: boolean;
+        mode: "mr" | "direct";
+        path: string;
+        mrUrl?: string;
+      }>(ctx, `/api/docs/${encodeURIComponent(fileName)}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          content: fullContent,
+          createMR: true,
+          agentName: "Memory System",
+          assignees: [],
+        }),
+      });
+
+      ctx.logger.info(`[spec.save-memory] Saved memory: ${fileName}`);
+
+      return {
+        ok: true,
+        path: fileName,
+        mrUrl: result.mrUrl,
+        memoryType,
+        title,
+      };
+    } catch (err) {
+      ctx.logger.error("[spec.save-memory] Failed to save memory", err);
+      throw err;
+    }
+  });
+}
+
+/**
+ * Tool: spec.load-memory (新增)
+ * 加载长期记忆（从文档读取）
+ */
+function registerSpecLoadMemory(ctx: PluginContext) {
+  ctx.tools.register("spec.load-memory", async (input: unknown) => {
+    const { memoryType, query, limit = 5 } = input as {
+      memoryType?: string;
+      query?: string;
+      limit?: number;
+    };
+
+    ctx.logger.info("[spec.load-memory] Loading memory", { memoryType, query, limit });
+
+    // 记忆路径映射
+    const memoryPaths: Record<string, string> = {
+      "architecture": "01-architecture-decisions",
+      "lesson-learned": "02-lessons-learned",
+      "best-practice": "03-best-practices",
+      "troubleshooting": "04-troubleshooting",
+    };
+
+    const searchDir = memoryType ? (memoryPaths[memoryType] || "05-memories") : "";
+
+    try {
+      // 获取记忆文档列表
+      const allDocs = await docspecFetch<{
+        files: Array<{ path: string }>;
+      }>(ctx, `/api/docs${searchDir ? "?prefix=" + encodeURIComponent(searchDir) : ""}`);
+
+      const memories: Array<{ path: string; title: string; date: string; type: string; snippet: string }> = [];
+
+      for (const file of allDocs.files.slice(0, limit * 2)) {
+        try {
+          const doc = await docspecFetch<{ content: string }>(ctx, `/api/docs/${encodeURIComponent(file.path)}`);
+          
+          // 解析 Front Matter
+          const frontMatterMatch = doc.content.match(/^---\n([\s\S]*?)\n---/);
+          if (!frontMatterMatch) continue;
+
+          const frontMatter = frontMatterMatch[1];
+          const titleMatch = frontMatter.match(/title:\s*(.+)/);
+          const typeMatch = frontMatter.match(/type:\s*(.+)/);
+          const dateMatch = frontMatter.match(/date:\s*(.+)/);
+
+          // 如果指定了 query，检查内容是否匹配
+          if (query && !doc.content.toLowerCase().includes(query.toLowerCase())) {
+            continue;
+          }
+
+          memories.push({
+            path: file.path,
+            title: titleMatch ? titleMatch[1].trim() : file.path,
+            type: typeMatch ? typeMatch[1].trim() : "unknown",
+            date: dateMatch ? dateMatch[1].trim() : "unknown",
+            snippet: doc.content.slice(200, 500) + "...",
+          });
+
+          if (memories.length >= limit) break;
+        } catch (err) {
+          ctx.logger.debug(`[spec.load-memory] Skip unreadable file: ${file.path}`);
+        }
+      }
+
+      ctx.logger.info(`[spec.load-memory] Loaded ${memories.length} memories`);
+
+      return { count: memories.length, memories };
+    } catch (err) {
+      ctx.logger.error("[spec.load-memory] Failed to load memory", err);
+      throw err;
+    }
+  });
+}
+
+/**
+ * Tool: spec.list-memories (新增)
+ * 列出所有记忆分类和数量
+ */
+function registerSpecListMemories(ctx: PluginContext) {
+  ctx.tools.register("spec.list-memories", async () => {
+    ctx.logger.info("[spec.list-memories] Listing memory categories");
+
+    const categories = [
+      { type: "architecture", path: "01-architecture-decisions", count: 0 },
+      { type: "lesson-learned", path: "02-lessons-learned", count: 0 },
+      { type: "best-practice", path: "03-best-practices", count: 0 },
+      { type: "troubleshooting", path: "04-troubleshooting", count: 0 },
+    ];
+
+    for (const cat of categories) {
+      try {
+        const docs = await docspecFetch<{
+          files: Array<{ path: string }>;
+        }>(ctx, `/api/docs?prefix=${encodeURIComponent(cat.path)}`);
+        cat.count = docs.files.length;
+      } catch (err) {
+        ctx.logger.debug(`[spec.list-memories] Cannot access ${cat.path}`);
+      }
+    }
+
+    return { categories };
+  });
+}
+
 // ── Action 实现 ─────────────────────────────────────────────────────
 
 /**
@@ -637,6 +894,126 @@ function registerIssuesCompletedHandler(ctx: PluginContext) {
       }
     } catch (err) {
       ctx.logger.error("[issues.completed] Failed to check doc update", err);
+    }
+  });
+}
+
+/**
+ * Event: issues.assigned (新增)
+ * 当 Issue 分配给 Agent 时，自动加载相关规范模板
+ *
+ * 短期记忆：当前任务上下文
+ * 长期记忆：相关规范模板
+ */
+function registerIssuesAssignedHandler(ctx: PluginContext) {
+  ctx.events.on("issues.assigned", async (payload: unknown) => {
+    const issue = payload as {
+      id: string;
+      title: string;
+      description?: string;
+      assigneeId?: string;
+      assigneeName?: string;
+      type?: string;  // feature, bug, task, etc.
+      tags?: string[];
+    };
+
+    ctx.logger.info("[issues.assigned] Issue assigned", { id: issue.id, assignee: issue.assigneeName });
+
+    try {
+      // 根据 issue 类型和标签确定需要的规范
+      const requiredTemplates: string[] = [];
+
+      // 所有 issue 都需要开发规范
+      requiredTemplates.push("dev-spec");
+
+      // 根据类型添加特定规范
+      if (issue.type === "feature") {
+        requiredTemplates.push("api-design");
+      } else if (issue.type === "bug") {
+        requiredTemplates.push("troubleshooting");
+      }
+
+      // 根据标签添加规范
+      if (issue.tags?.includes("frontend")) {
+        requiredTemplates.push("git-flow");
+      }
+      if (issue.tags?.includes("backend")) {
+        requiredTemplates.push("code-review");
+      }
+
+      // 加载规范模板
+      const templates: Array<{ type: string; title: string; snippet: string }> = [];
+
+      for (const templateType of requiredTemplates) {
+        try {
+          const templatePaths: Record<string, string> = {
+            "dev-spec": "00-conventions/01-开发规范.md",
+            "code-review": "00-conventions/02-代码审查规范.md",
+            "doc-writing": "00-conventions/03-文档编写规范.md",
+            "test-spec": "00-conventions/04-测试规范.md",
+            "git-flow": "00-conventions/05-Git 工作流规范.md",
+            "api-design": "00-conventions/08-API 设计规范.md",
+          };
+
+          const templatePath = templatePaths[templateType];
+          if (!templatePath) continue;
+
+          const doc = await docspecFetch<{ content: string }>(ctx, `/api/docs/${encodeURIComponent(templatePath)}`);
+          
+          templates.push({
+            type: templateType,
+            title: templatePath,
+            snippet: doc.content.slice(0, 300) + "...",
+          });
+        } catch (err) {
+          ctx.logger.debug(`[issues.assigned] Template not found: ${templateType}`);
+        }
+      }
+
+      // 加载相关记忆（从历史经验中学习）
+      const keywords = issue.title.split(/\s+/).filter(w => w.length > 3).slice(0, 2);
+      let memories: Array<{ path: string; title: string; type: string }> = [];
+
+      for (const keyword of keywords) {
+        try {
+          const memoryResult = await docspecFetch<{
+            count: number;
+            memories: Array<{ path: string; title: string; type: string }>;
+          }>(ctx, "/api/memories", {
+            method: "POST",
+            body: JSON.stringify({ query: keyword, limit: 3 }),
+          });
+
+          if (memoryResult.count > 0) {
+            memories.push(...memoryResult.memories);
+          }
+        } catch (err) {
+          ctx.logger.debug(`[issues.assigned] Memory search failed for: ${keyword}`);
+        }
+      }
+
+      // 去重
+      memories = Array.from(
+        new Map(memories.map(m => [m.path, m])).values()
+      ).slice(0, 5);
+
+      // 构建规范引用文本（添加到 issue 描述或评论）
+      const templateRefs = templates
+        .map(t => `- **${t.type}**: [\`${t.title}\`](docspec://${t.title})`)
+        .join("\n");
+
+      const memoryRefs = memories.length > 0
+        ? "\n\n### 💡 相关经验\n\n" + memories.map(m => `- [\`${m.title}\`](docspec://${m.path})`).join("\n")
+        : "";
+
+      const newDescription = `${issue.description || ""}\n\n---\n\n### 📋 工作规范\n\n${templateRefs}${memoryRefs}`;
+
+      // 更新 issue 描述（添加规范引用）
+      await ctx.issues.update(issue.id, { description: newDescription });
+
+      ctx.logger.info(`[issues.assigned] Loaded ${templates.length} templates and ${memories.length} memories for issue ${issue.id}`);
+    } catch (err) {
+      ctx.logger.error("[issues.assigned] Failed to load templates", err);
     }
   });
 }

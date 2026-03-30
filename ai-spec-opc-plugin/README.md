@@ -6,13 +6,17 @@ AI-Spec 文档权限系统 OPC 插件 - 将 douhua-spec 文档仓库集成到 Ji
 
 ### Tools
 
-| Tool | 描述 | 优化 |
+| Tool | 描述 | 状态 |
 |------|------|------|
 | `spec.list` | 列出角色可访问的文档 | ✅ 支持角色参数 |
 | `spec.read` | 读取文档内容 | ✅ 支持角色参数 |
 | `spec.draft` | 起草文档变更并创建 GitLab MR | ✅ 支持章节标记 |
 | `spec.search` | 搜索文档关键词 | ✅ 支持角色参数 |
-| `spec.update-auto` | CI/CD 自动更新 AUTO 区域 | 🆕 新增 |
+| `spec.update-auto` | CI/CD 自动更新 AUTO 区域 | ✅ 直写 main |
+| `spec.get-template` | 获取规范模板 | 🆕 规范模板系统 |
+| `spec.save-memory` | 保存经验到长期记忆 | 🆕 记忆系统 |
+| `spec.load-memory` | 加载相关记忆 | 🆕 记忆系统 |
+| `spec.list-memories` | 列出记忆分类 | 🆕 记忆系统 |
 
 ### Actions
 
@@ -28,6 +32,7 @@ AI-Spec 文档权限系统 OPC 插件 - 将 douhua-spec 文档仓库集成到 Ji
 |-------|---------|------|
 | `issues.created` | 创建 Issue 时 | 自动注入相关文档引用 |
 | `issues.completed` | Issue 完成时 | 检查文档是否需要更新 |
+| `issues.assigned` | Issue 分配给 Agent 时 | 🆕 自动加载规范模板和相关记忆 |
 | `agent.hired` | 招聘 Agent 时 | 在 docspec-server 注册 Agent |
 | `company.created` | 创建公司时 | 初始化文档权限配置 |
 
@@ -120,7 +125,7 @@ const result = await tools.call("spec.draft", {
 });
 ```
 
-### 使用 Tool: spec.update-auto（新增）
+### 使用 Tool: spec.update-auto
 
 ```typescript
 // CI/CD 自动更新 AUTO 区域（直写 main，无需 MR）
@@ -131,6 +136,97 @@ const result = await tools.call("spec.update-auto", {
   role: "backend"
 });
 // 返回：{ ok: true, mode: "direct", commitSha: "abc123" }
+```
+
+### 使用 Tool: spec.get-template（规范模板系统）
+
+```typescript
+// 获取开发规范模板
+const result = await tools.call("spec.get-template", {
+  templateType: "dev-spec"
+});
+// 返回：{ templateType: "dev-spec", content: "## 开发规范\n\n### 1. 代码风格..." }
+
+// 获取 API 设计规范模板
+const result = await tools.call("spec.get-template", {
+  templateType: "api-design"
+});
+```
+
+### 使用 Tool: spec.save-memory（长期记忆存储）
+
+```typescript
+// 保存架构决策到长期记忆
+const result = await tools.call("spec.save-memory", {
+  memoryType: "architecture",
+  title: "使用 Redis 缓存热点数据",
+  content: "## 背景\n...\n## 决策\n...\n## 效果\n...",
+  tags: ["redis", "cache", "performance"],
+  relatedIssueId: "ISSUE-123",
+  relatedModuleId: "module-001"
+});
+// 返回：{ ok: true, memoryPath: "01-architecture-decisions/2026-03-30-redis-cache.md", mrUrl: "..." }
+
+// 保存经验教训
+const result = await tools.call("spec.save-memory", {
+  memoryType: "lesson-learned",
+  title: "数据库连接池配置不当导致性能问题",
+  content: "## 问题描述\n...\n## 根因分析\n...\n## 解决方案\n...",
+  tags: ["database", "performance", "connection-pool"]
+});
+```
+
+### 使用 Tool: spec.load-memory（加载相关记忆）
+
+```typescript
+// 搜索与性能相关的记忆
+const result = await tools.call("spec.load-memory", {
+  query: "性能优化 缓存",
+  limit: 5
+});
+// 返回：{ memories: [{ path: "...", title: "...", excerpt: "..." }, ...] }
+
+// 按类型过滤记忆
+const result = await tools.call("spec.load-memory", {
+  query: "数据库",
+  memoryType: "troubleshooting",
+  limit: 3
+});
+```
+
+### 使用 Tool: spec.list-memories（查看记忆分类）
+
+```typescript
+// 列出所有记忆分类和数量
+const result = await tools.call("spec.list-memories", {});
+// 返回：{
+//   categories: [
+//     { type: "architecture", count: 5, path: "01-architecture-decisions" },
+//     { type: "lesson-learned", count: 12, path: "02-lessons-learned" },
+//     { type: "best-practice", count: 8, path: "03-best-practices" },
+//     { type: "troubleshooting", count: 15, path: "04-troubleshooting" }
+//   ]
+// }
+```
+
+### 事件：issues.assigned（自动加载规范）
+
+当 Issue 分配给 Agent 时，插件自动：
+
+1. 分析 Issue 类型和标签
+2. 确定需要的规范模板（如 feature 需要 api-design，bug 需要 troubleshooting）
+3. 搜索相关记忆（基于 Issue 标题关键词）
+4. 更新 Issue 描述，添加模板和记忆引用
+
+```typescript
+// 示例：Issue 分配给 Agent 后，描述自动添加
+// ## 相关规范
+// - [开发规范](00-conventions/01-开发规范.md)
+// - [API 设计规范](00-conventions/08-API 设计规范.md)
+//
+// ## 相关记忆
+// - [使用 Redis 缓存热点数据](01-architecture-decisions/2026-03-30-redis-cache.md)
+// - [数据库连接池配置不当导致性能问题](02-lessons-learned/db-connection-pool.md)
 ```
 
 ### 使用 Action: init-project
@@ -207,6 +303,63 @@ npm run clean
 3. **权限验证**: 调用 docspec-server 时使用 JWT Token 验证
 4. **审计日志**: 所有文档操作记录到 OPC 活动日志
 
+## 记忆系统设计
+
+### 长期记忆 vs 短期记忆
+
+| 特性 | 长期记忆 | 短期记忆 |
+|------|---------|---------|
+| 存储位置 | douhua-spec 文档仓库 | OPC Issue/Agent 状态 |
+| 生命周期 | 永久保存，随项目积累 | 任务完成后清除 |
+| 内容类型 | 架构决策、经验教训、最佳实践 | 当前任务上下文、临时决策 |
+| 访问方式 | `spec.save-memory` / `spec.load-memory` | OPC Issue/Agent API |
+| 目录结构 | `01-architecture-decisions/`, `02-lessons-learned/` 等 | OPC 数据库 |
+
+### 记忆分类
+
+| 类型 | 目录 | 说明 |
+|------|------|------|
+| `architecture` | `01-architecture-decisions/` | 架构决策记录（ADR） |
+| `lesson-learned` | `02-lessons-learned/` | 经验教训、踩坑记录 |
+| `best-practice` | `03-best-practices/` | 最佳实践、推荐做法 |
+| `troubleshooting` | `04-troubleshooting/` | 故障排查手册 |
+
+### 规范模板类型
+
+| 类型 | 文件路径 | 说明 |
+|------|---------|------|
+| `dev-spec` | `00-conventions/01-开发规范.md` | 开发规范模板 |
+| `code-review` | `00-conventions/02-代码审查规范.md` | 代码审查清单 |
+| `doc-writing` | `00-conventions/03-文档编写规范.md` | 文档编写指南 |
+| `test-spec` | `00-conventions/04-测试规范.md` | 测试规范模板 |
+| `git-flow` | `00-conventions/05-Git 工作流规范.md` | Git 工作流规范 |
+| `api-design` | `00-conventions/08-API 设计规范.md` | API 设计规范 |
+
+### 记忆文档格式
+
+```markdown
+---
+type: architecture
+title: 使用 Redis 缓存热点数据
+date: 2026-03-30T10:00:00Z
+tags: [redis, cache, performance]
+relatedIssue: ISSUE-123
+relatedModule: module-001
+---
+
+## 背景
+描述问题的上下文和原因
+
+## 决策
+详细说明架构决策内容
+
+## 效果
+实施后的效果和数据
+
+## 参考
+相关链接和文档
+```
+
 ## 章节标记设计
 
 根据 docspec-system.md 规范，AUTO 区域使用 HTML 注释标记：
@@ -257,6 +410,16 @@ npm run clean
 3. 确认调用者角色有写权限
 
 ## 版本历史
+
+### v1.2.0（记忆与模板系统）
+
+- 🆕 新增 `spec.get-template` Tool（规范模板系统）
+- 🆕 新增 `spec.save-memory` Tool（长期记忆存储）
+- 🆕 新增 `spec.load-memory` Tool（记忆检索）
+- 🆕 新增 `spec.list-memories` Tool（记忆分类浏览）
+- 🆕 新增 `issues.assigned` 事件处理（自动加载规范和记忆）
+- ✅ 增强 AI 自动了解项目能力
+- ✅ 增强 Agent 按规范工作能力
 
 ### v1.1.0（增强版）
 
