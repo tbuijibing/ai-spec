@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DocSpec 接入向导</title>
+  <link rel="stylesheet" href="onboard.css" />
+  <!-- JSZip for client-side zip download -->
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+<body>
+<div class="wizard">
+
+  <!-- Header -->
+  <div class="wizard-header">
+    <h1>📋 DocSpec 接入向导</h1>
+    <p>将老项目接入 AI 自动化开发系统，生成全套配置文件</p>
+  </div>
+
+  <!-- Step tabs -->
+  <div class="steps">
+    <div class="step-tab active" data-step="1">
+      <div class="num">1</div>项目信息
+    </div>
+    <div class="step-tab" data-step="2">
+      <div class="num">2</div>代码仓库
+    </div>
+    <div class="step-tab" data-step="3">
+      <div class="num">3</div>团队成员
+    </div>
+    <div class="step-tab" data-step="4">
+      <div class="num">4</div>生成配置
+    </div>
+  </div>
+
+  <!-- Step 1：项目信息 -->
+  <div class="wizard-body">
+    <div class="step-panel active" data-step="1">
+      <h2>基本信息</h2>
+      <div class="field">
+        <label>项目名称 <span style="color:#e74c3c">*</span></label>
+        <input id="projectName" type="text" placeholder="豆画短视频模块" />
+      </div>
+      <div class="field">
+        <label>模块编号 <span style="color:#e74c3c">*</span></label>
+        <input id="moduleId" type="text" placeholder="SPEC-201" />
+      </div>
+      <div class="field">
+        <label>GitLab 地址 <span style="color:#e74c3c">*</span></label>
+        <input id="gitlabUrl" type="url" placeholder="https://gitlab.example.com" />
+      </div>
+      <div class="field">
+        <label>douhua-spec 仓库路径 <span style="color:#e74c3c">*</span></label>
+        <input id="specRepo" type="text" placeholder="your-group/douhua-spec" />
+      </div>
+    </div>
+
+    <!-- Step 2：代码仓库 -->
+    <div class="step-panel" data-step="2">
+      <h2>代码仓库配置</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        选择本项目涉及的端，逐个添加仓库信息。
+      </p>
+
+      <!-- 快捷添加按钮 -->
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">
+        <button class="btn btn-secondary add-repo-btn" data-role="frontend">+ 前端</button>
+        <button class="btn btn-secondary add-repo-btn" data-role="android">+ Android</button>
+        <button class="btn btn-secondary add-repo-btn" data-role="ios">+ iOS</button>
+        <button class="btn btn-secondary add-repo-btn" data-role="backend">+ 后端</button>
+        <button class="btn btn-secondary add-repo-btn" data-role="product">+ 产品</button>
+        <button class="btn btn-secondary add-repo-btn" data-role="design">+ 设计</button>
+      </div>
+
+      <div id="repoList" class="card-list"></div>
+      <p id="repoEmpty" style="font-size:13px;color:#bbb;text-align:center;padding:20px 0">
+        点击上方按钮添加仓库
+      </p>
+    </div>
+
+    <!-- Step 3：团队成员 -->
+    <div class="step-panel" data-step="3">
+      <h2>团队成员与角色</h2>
+      <p style="font-size:13px;color:#888;margin-bottom:16px">
+        填写团队成员信息，系统将按角色生成权限配置和 Paperclip Agent。
+      </p>
+      <div id="memberList" class="card-list"></div>
+      <button class="btn-add" id="addMemberBtn">+ 添加成员</button>
+    </div>
+
+    <!-- Step 4：生成配置 -->
+    <div class="step-panel" data-step="4">
+      <div class="loading">
+        <div class="spinner"></div>
+        准备生成配置文件...
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer navigation -->
+  <div class="wizard-footer">
+    <button class="btn btn-secondary btn-back" style="display:none">← 上一步</button>
+    <div style="flex:1"></div>
+    <button class="btn btn-primary btn-next">下一步 →</button>
+  </div>
+
+</div>
+
+<script src="onboard.js"></script>
+</body>
+</html>
